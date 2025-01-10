@@ -675,7 +675,6 @@ impl<'a> MoveTestAdapter<'a> for SuiTestAdapter {
 
                 let interpolated =
                     self.interpolate_query(&contents, &cursors, highest_checkpoint)?;
-
                 #[derive(Deserialize)]
                 struct Query {
                     method: String,
@@ -684,7 +683,6 @@ impl<'a> MoveTestAdapter<'a> for SuiTestAdapter {
 
                 let query: Query = serde_json::from_str(&interpolated)
                     .context("Failed to parse JSON-RPC query")?;
-
                 let resp = offchain_reader
                     .execute_jsonrpc(query.method, query.params)
                     .await?;
