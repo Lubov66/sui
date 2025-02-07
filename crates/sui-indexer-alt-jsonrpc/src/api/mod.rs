@@ -5,3 +5,4 @@ pub(crate) mod governance;
 pub(crate) mod objects;
 pub(crate) mod rpc_module;
 pub(crate) mod transactions;
+pub(crate) mod write;

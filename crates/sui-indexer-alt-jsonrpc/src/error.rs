@@ -111,3 +111,8 @@ impl<E: std::error::Error> From<RpcError<E>> for ErrorObject<'static> {
 pub(crate) fn invalid_params<E: std::error::Error>(err: E) -> RpcError<E> {
     RpcError::InvalidParams(err)
 }
+
+/// Helper function to convert an error into an `ErrorObject` with the `INTERNAL_ERROR_CODE`.
+pub(crate) fn internal_error_object<E: std::error::Error>(err: E) -> ErrorObject<'static> {
+    ErrorObject::owned(INTERNAL_ERROR_CODE, err.to_string(), None::<()>)
+}

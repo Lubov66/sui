@@ -8,8 +8,10 @@ use anyhow::Context as _;
 use api::objects::{Objects, ObjectsConfig};
 use api::rpc_module::RpcModule;
 use api::transactions::{QueryTransactions, Transactions, TransactionsConfig};
+use api::write::Write;
 use config::RpcConfig;
 use data::system_package_task::{SystemPackageTask, SystemPackageTaskArgs};
+use jsonrpsee::http_client::{HeaderMap, HeaderValue, HttpClient, HttpClientBuilder};
 use jsonrpsee::server::{RpcServiceBuilder, ServerBuilder};
 use metrics::middleware::MetricsLayer;
 use metrics::RpcMetrics;
@@ -34,6 +36,8 @@ mod error;
 mod metrics;
 mod paginate;
 
+pub const CLIENT_SDK_TYPE_HEADER: &str = "client-sdk-type";
+
 #[derive(clap::Args, Debug, Clone)]
 pub struct RpcArgs {
     /// Address to listen to for incoming JSON-RPC connections.
@@ -43,6 +47,10 @@ pub struct RpcArgs {
     /// The maximum number of concurrent connections to accept.
     #[clap(long, default_value_t = Self::default().max_rpc_connections)]
     pub max_rpc_connections: u32,
+
+    /// The URL of the fullnode RPC we connect to for executing transactions.
+    #[clap(long, default_value_t = Self::default().fullnode_rpc_url)]
+    pub fullnode_rpc_url: String,
 }
 
 pub struct RpcService {
@@ -76,6 +84,7 @@ impl RpcService {
         let RpcArgs {
             rpc_listen_address,
             max_rpc_connections,
+            ..
         } = rpc_args;
 
         let metrics = RpcMetrics::new(registry);
@@ -185,6 +194,7 @@ impl Default for RpcArgs {
         Self {
             rpc_listen_address: "0.0.0.0:6000".parse().unwrap(),
             max_rpc_connections: 100,
+            fullnode_rpc_url: "http://localhost:9000".to_string(),
         }
     }
 }
@@ -212,6 +222,9 @@ pub async fn start_rpc(
     let objects_config = objects.finish(ObjectsConfig::default());
     let transactions_config = transactions.finish(TransactionsConfig::default());
 
+    let http_client = get_http_client(&rpc_args.fullnode_rpc_url)
+        .context("Failed to create fullnode RPC client")?;
+
     let mut rpc = RpcService::new(rpc_args, registry, cancel.child_token())
         .context("Failed to create RPC service")?;
 
@@ -227,6 +240,7 @@ pub async fn start_rpc(
     rpc.add_module(Objects(context.clone(), objects_config))?;
     rpc.add_module(QueryTransactions(context.clone(), transactions_config))?;
     rpc.add_module(Transactions(context.clone()))?;
+    rpc.add_module(Write(http_client))?;
 
     let h_rpc = rpc.run().await.context("Failed to start RPC service")?;
     let h_system_package_task = system_package_task.run();
@@ -236,6 +250,25 @@ pub async fn start_rpc(
         cancel.cancel();
         let _ = h_system_package_task.await;
     }))
+}
+
+fn get_http_client(rpc_client_url: &str) -> anyhow::Result<HttpClient> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        CLIENT_SDK_TYPE_HEADER,
+        HeaderValue::from_static("indexer-alt"),
+    );
+
+    HttpClientBuilder::default()
+        .max_request_size(2 << 30)
+        .set_headers(headers.clone())
+        .build(rpc_client_url)
+        .map_err(|e| {
+            anyhow::anyhow!(format!(
+                "Failed to initialize fullnode RPC client with error: {:?}",
+                e
+            ))
+        })
 }
 
 #[cfg(test)]
