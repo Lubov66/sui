@@ -5,12 +5,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use api::coin::{CoinConfig, CoinServer};
+use api::coin::{Coins, CoinsConfig};
 use api::objects::{Objects, ObjectsConfig};
 use api::rpc_module::RpcModule;
 use api::transactions::{QueryTransactions, Transactions, TransactionsConfig};
 use config::RpcConfig;
-
 use data::system_package_task::{SystemPackageTask, SystemPackageTaskArgs};
 use jsonrpsee::server::{RpcServiceBuilder, ServerBuilder};
 use metrics::middleware::MetricsLayer;
@@ -208,13 +207,13 @@ pub async fn start_rpc(
     let RpcConfig {
         objects,
         transactions,
-        coin,
+        coins,
         extra: _,
     } = rpc_config.finish();
 
     let objects_config = objects.finish(ObjectsConfig::default());
     let transactions_config = transactions.finish(TransactionsConfig::default());
-    let coin_config = coin.finish(CoinConfig::default());
+    let coins_config = coins.finish(CoinsConfig::default());
     let mut rpc = RpcService::new(rpc_args, registry, cancel.child_token())
         .context("Failed to create RPC service")?;
 
@@ -226,7 +225,7 @@ pub async fn start_rpc(
         cancel.child_token(),
     );
 
-    rpc.add_module(CoinServer(context.clone(), coin_config))?;
+    rpc.add_module(Coins(context.clone(), coins_config))?;
     rpc.add_module(Governance(context.clone()))?;
     rpc.add_module(Objects(context.clone(), objects_config))?;
     rpc.add_module(QueryTransactions(context.clone(), transactions_config))?;

@@ -1,3 +1,6 @@
+---
+source: external-crates/move/crates/move-transactional-test-runner/src/framework.rs
+---
 processed 10 tasks
 
 init:
@@ -101,6 +104,14 @@ Response: {
   "id": 1,
   "result": {
     "data": [
+      {
+        "coinType": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
+        "coinObjectId": "0x8f30d8a369b4b9649bd1f018cb5c6fc84c19098aefb8d3d0cffb50aa1574251d",
+        "version": "4",
+        "digest": "AWvFXoUkm92HAZcAargDYsx68QS8arnJiqxjVUzXC7nk",
+        "balance": "2000",
+        "previousTransaction": "AXzgRv8bvNPQvMiETHqWkQ9oQhWb8QF2PUurfXeEFUyT"
+      },
       {
         "coinType": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
         "coinObjectId": "0xa9a2c06be125dfa73fab40fdcca74eb80251de59c95a4baf07e13e1435fe19cd",

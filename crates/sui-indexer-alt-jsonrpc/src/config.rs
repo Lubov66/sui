@@ -6,7 +6,7 @@ use std::mem;
 use sui_default_config::DefaultConfig;
 use tracing::warn;
 
-use crate::api::{coin::CoinConfig, objects::ObjectsConfig, transactions::TransactionsConfig};
+use crate::api::{coin::CoinsConfig, objects::ObjectsConfig, transactions::TransactionsConfig};
 
 #[DefaultConfig]
 #[derive(Clone, Default, Debug)]
@@ -18,7 +18,7 @@ pub struct RpcConfig {
     pub transactions: TransactionsLayer,
 
     /// Configuration for coin-related RPC methods.
-    pub coin: CoinLayer,
+    pub coins: CoinsLayer,
 
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -45,7 +45,7 @@ pub struct TransactionsLayer {
 
 #[DefaultConfig]
 #[derive(Clone, Default, Debug)]
-pub struct CoinLayer {
+pub struct CoinsLayer {
     pub default_page_size: Option<usize>,
     pub max_page_size: Option<usize>,
 
@@ -60,7 +60,7 @@ impl RpcConfig {
         Self {
             objects: ObjectsConfig::default().into(),
             transactions: TransactionsConfig::default().into(),
-            coin: CoinConfig::default().into(),
+            coins: CoinsConfig::default().into(),
             extra: Default::default(),
         }
     }
@@ -92,6 +92,16 @@ impl TransactionsLayer {
     }
 }
 
+impl CoinsLayer {
+    pub fn finish(self, base: CoinsConfig) -> CoinsConfig {
+        check_extra("coins", self.extra);
+        CoinsConfig {
+            default_page_size: self.default_page_size.unwrap_or(base.default_page_size),
+            max_page_size: self.max_page_size.unwrap_or(base.max_page_size),
+        }
+    }
+}
+
 impl From<ObjectsConfig> for ObjectsLayer {
     fn from(config: ObjectsConfig) -> Self {
         Self {
@@ -111,18 +121,8 @@ impl From<TransactionsConfig> for TransactionsLayer {
     }
 }
 
-impl CoinLayer {
-    pub fn finish(self, base: CoinConfig) -> CoinConfig {
-        check_extra("coin", self.extra);
-        CoinConfig {
-            default_page_size: self.default_page_size.unwrap_or(base.default_page_size),
-            max_page_size: self.max_page_size.unwrap_or(base.max_page_size),
-        }
-    }
-}
-
-impl From<CoinConfig> for CoinLayer {
-    fn from(config: CoinConfig) -> Self {
+impl From<CoinsConfig> for CoinsLayer {
+    fn from(config: CoinsConfig) -> Self {
         Self {
             default_page_size: Some(config.default_page_size),
             max_page_size: Some(config.max_page_size),

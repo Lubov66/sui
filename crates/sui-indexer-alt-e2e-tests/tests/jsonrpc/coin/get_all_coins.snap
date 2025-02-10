@@ -1,3 +1,6 @@
+---
+source: external-crates/move/crates/move-transactional-test-runner/src/framework.rs
+---
 processed 7 tasks
 
 init:
@@ -45,6 +48,14 @@ Response: {
       },
       {
         "coinType": "0xf5ce206aa1fffb93935caae7f35123bf471173bc2b42f77c66a035043060c071::fake::FAKE",
+        "coinObjectId": "0x78ebc8177cb90d983dcafc9c5541a20dc33f44b6058be96dbb3069202532a20a",
+        "version": "2",
+        "digest": "BmJ8PfWvoR8xKBLFGhtfCewi9w13tjCTwwvvQ5k7xkmd",
+        "balance": "4000",
+        "previousTransaction": "4Mpg2JTgZa2pt8akvsiqazRZohAbsVBUVVemra6eAR3d"
+      },
+      {
+        "coinType": "0xf5ce206aa1fffb93935caae7f35123bf471173bc2b42f77c66a035043060c071::fake::FAKE",
         "coinObjectId": "0x1c06fe536adc913b33082885c9deb5243f617a4810f4d6895d9ca78c5613b041",
         "version": "2",
         "digest": "CCUct1nMqHYvTWspP59DUSYH1sYYW129ckUuksahU9G",
@@ -53,10 +64,10 @@ Response: {
       },
       {
         "coinType": "0xf5ce206aa1fffb93935caae7f35123bf471173bc2b42f77c66a035043060c071::fake::FAKE",
-        "coinObjectId": "0x78ebc8177cb90d983dcafc9c5541a20dc33f44b6058be96dbb3069202532a20a",
+        "coinObjectId": "0xc6e3d02b9a0160f25578ec0f8f6de719fa642f647179dfbf057ff857d9f5c975",
         "version": "2",
-        "digest": "BmJ8PfWvoR8xKBLFGhtfCewi9w13tjCTwwvvQ5k7xkmd",
-        "balance": "4000",
+        "digest": "Aje2LLNb1R3tpLnFcZ3P1UYs8afQ9XQhPKatPvp9LD6V",
+        "balance": "100",
         "previousTransaction": "4Mpg2JTgZa2pt8akvsiqazRZohAbsVBUVVemra6eAR3d"
       },
       {
@@ -66,14 +77,6 @@ Response: {
         "digest": "ApA97uYGxQu6qdxDB7aFThNxrQHJDFZaXAX285h31DJ9",
         "balance": "500",
         "previousTransaction": "6xiXsRVayb3NGPmuDkoy95dVrDeeSmKEaTZo2hSDxCGJ"
-      },
-      {
-        "coinType": "0xf5ce206aa1fffb93935caae7f35123bf471173bc2b42f77c66a035043060c071::fake::FAKE",
-        "coinObjectId": "0xc6e3d02b9a0160f25578ec0f8f6de719fa642f647179dfbf057ff857d9f5c975",
-        "version": "2",
-        "digest": "Aje2LLNb1R3tpLnFcZ3P1UYs8afQ9XQhPKatPvp9LD6V",
-        "balance": "100",
-        "previousTransaction": "4Mpg2JTgZa2pt8akvsiqazRZohAbsVBUVVemra6eAR3d"
       },
       {
         "coinType": "0xf5ce206aa1fffb93935caae7f35123bf471173bc2b42f77c66a035043060c071::fake::FAKE",

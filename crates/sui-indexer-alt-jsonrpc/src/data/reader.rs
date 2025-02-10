@@ -108,7 +108,7 @@ impl<'p> Connection<'p> {
         Pg: QueryMetadata<Q::SqlType>,
         ST: 'static,
     {
-        println!("{}", diesel::debug_query(&query));
+        debug!("{}", diesel::debug_query(&query));
 
         let _guard = self.metrics.db_latency.start_timer();
         let res = query.get_results(&mut self.conn).await;

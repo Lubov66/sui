@@ -1,3 +1,6 @@
+---
+source: external-crates/move/crates/move-transactional-test-runner/src/framework.rs
+---
 processed 10 tasks
 
 init:
@@ -70,22 +73,22 @@ Response: {
       },
       {
         "coinType": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
-        "coinObjectId": "0x25c9a04c7ccfe4bba96596c73d14363121e0d6a6c979e65893877266f7f82074",
-        "version": "2",
-        "digest": "3xXGpcHsghX2BCcmWQ8CspNsWP8sD93LRdzzstTMt1Dx",
-        "balance": "12",
-        "previousTransaction": "Cuu9udTB5hRGQd5o37gNxaq4BjCU5qJiQEQzbuD7U6Y6"
-      },
-      {
-        "coinType": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
         "coinObjectId": "0x57f42279a1d36e456374da161a332ad4f4fe7919fdb44dba456447a6f4d25e8e",
         "version": "3",
         "digest": "5edeWFmMJatCEtNanqj2Qx91HcBGyq9F1EzbCnbZtY69",
         "balance": "34",
         "previousTransaction": "AasjzjtKdtrQeZqXEquUBDp3Wb8mbLziGxg6np4mhf56"
+      },
+      {
+        "coinType": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
+        "coinObjectId": "0x25c9a04c7ccfe4bba96596c73d14363121e0d6a6c979e65893877266f7f82074",
+        "version": "2",
+        "digest": "3xXGpcHsghX2BCcmWQ8CspNsWP8sD93LRdzzstTMt1Dx",
+        "balance": "12",
+        "previousTransaction": "Cuu9udTB5hRGQd5o37gNxaq4BjCU5qJiQEQzbuD7U6Y6"
       }
     ],
-    "nextCursor": "eyJvIjoiMHg1N2Y0MjI3OWExZDM2ZTQ1NjM3NGRhMTYxYTMzMmFkNGY0ZmU3OTE5ZmRiNDRkYmE0NTY0NDdhNmY0ZDI1ZThlIiwiYyI6MSwiYiI6MX0=",
+    "nextCursor": "eyJvIjoiMHgyNWM5YTA0YzdjY2ZlNGJiYTk2NTk2YzczZDE0MzYzMTIxZTBkNmE2Yzk3OWU2NTg5Mzg3NzI2NmY3ZjgyMDc0IiwiYyI6MSwiYiI6MX0=",
     "hasNextPage": false
   }
 }

@@ -9,7 +9,9 @@ use crate::context::Context;
 use crate::data::objects::load_latest;
 use crate::error::{invalid_params, InternalContext, RpcError};
 use crate::paginate::{Cursor, Page};
+use diesel::dsl::sql;
 use diesel::prelude::*;
+use diesel::sql_types::Bool;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use move_core_types::language_storage::TypeTag;
 use serde::{Deserialize, Serialize};
@@ -26,7 +28,7 @@ use sui_types::{
 
 #[open_rpc(namespace = "suix", tag = "Coin API")]
 #[rpc(server, namespace = "suix")]
-trait CoinApi {
+trait CoinsApi {
     /// Return Coin objects owned by an address with a specified coin type.
     /// If no coin type is specified, SUI coins are returned.
     #[method(name = "getCoins")]
@@ -55,10 +57,10 @@ trait CoinApi {
     ) -> RpcResult<JsonRpcPage<Coin, String>>;
 }
 
-pub(crate) struct CoinServer(pub Context, pub CoinConfig);
+pub(crate) struct Coins(pub Context, pub CoinsConfig);
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CoinConfig {
+pub struct CoinsConfig {
     /// The default page size limit when querying coins, if none is provided.
     pub default_page_size: usize,
 
@@ -87,7 +89,7 @@ struct BalanceCursor {
 }
 
 #[async_trait::async_trait]
-impl CoinApiServer for CoinServer {
+impl CoinsApiServer for Coins {
     async fn get_coins(
         &self,
         owner: SuiAddress,
@@ -125,7 +127,7 @@ impl CoinApiServer for CoinServer {
     }
 }
 
-impl CoinServer {
+impl Coins {
     async fn get_coins_impl(
         &self,
         owner: SuiAddress,
@@ -216,7 +218,6 @@ impl CoinServer {
             .filter(newer!(object_id).is_null())
             .filter(candidates!(owner_kind).eq(StoredCoinOwnerKind::Fastpath))
             .filter(candidates!(owner_id).eq(owner.to_vec()))
-            .filter(candidates!(coin_balance_bucket).is_not_null())
             .into_boxed();
 
         // If the coin type is specified, we filter by it.
@@ -233,23 +234,18 @@ impl CoinServer {
             coin_balance_bucket,
         })) = page.cursor
         {
-            query = query
-                .filter(candidates!(cp_sequence_number).le(cp_sequence_number))
-                .filter(
-                    // Since the result is ordered by coin_balance_bucket followed by object_id,
-                    // we need to filter by coin_balance_bucket first, then if balance bucket is the same, object_id.
-                    candidates!(coin_balance_bucket)
-                        .lt(coin_balance_bucket)
-                        .or(candidates!(coin_balance_bucket)
-                            .eq(coin_balance_bucket)
-                            .and(candidates!(object_id).gt(object_id.to_vec()))),
-                );
+            query = query.filter(sql::<Bool>(&format!(
+                r#"ROW(candidates.coin_balance_bucket, candidates.cp_sequence_number, candidates.object_id)
+                 < ROW({coin_balance_bucket}, {cp_sequence_number}, '\x{object_id}'::bytea)"#,
+                object_id = hex::encode(object_id),
+            )));
         }
 
         // Finally we order by coin_balance_bucket and break ties by object_id.
         query = query
             .order_by(candidates!(coin_balance_bucket).desc())
-            .then_order_by(candidates!(object_id).asc())
+            .then_order_by(candidates!(cp_sequence_number).desc())
+            .then_order_by(candidates!(object_id).desc())
             .limit(limit + 1);
 
         #[derive(Queryable, Debug, Serialize, Deserialize)]
@@ -333,9 +329,9 @@ impl CoinServer {
     }
 }
 
-impl RpcModule for CoinServer {
+impl RpcModule for Coins {
     fn schema(&self) -> Module {
-        CoinApiOpenRpc::module_doc()
+        CoinsApiOpenRpc::module_doc()
     }
 
     fn into_impl(self) -> jsonrpsee::RpcModule<Self> {
@@ -343,7 +339,7 @@ impl RpcModule for CoinServer {
     }
 }
 
-impl Default for CoinConfig {
+impl Default for CoinsConfig {
     fn default() -> Self {
         Self {
             default_page_size: 50,

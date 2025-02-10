@@ -69,6 +69,7 @@ impl Loader<VersionedObjectKey> for Reader {
 
 /// Load the contents of the latest version of an object, if it exists. This function does not
 /// respect deletion and wrapping. If an object is deleted or wrapped, it will return the contents
+/// of the object before the deletion or wrapping.
 pub(crate) async fn load_latest(
     loader: &DataLoader<Reader>,
     object_id: ObjectID,
