@@ -3179,8 +3179,6 @@ mod test {
         }
     }
 
-    // This will test the following scenarios:
-    // * We do have certified commits
     #[tokio::test]
     async fn try_commit_with_certified_commits() {
         telemetry_subscribers::init_for_testing();

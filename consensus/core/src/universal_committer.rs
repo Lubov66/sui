@@ -129,7 +129,7 @@ impl UniversalCommitter {
 
         let last_commit_index = self.dag_state.read().last_commit_index();
 
-        // If there are certified committed leaders, check that the first certified committed leader which is higher than the last decided one has not gaps.
+        // If there are certified committed leaders, check that the first certified committed leader which is higher than the last decided one has no gaps.
         while !certified_commits.is_empty() {
             let certified_commit = certified_commits
                 .first()
@@ -142,7 +142,7 @@ impl UniversalCommitter {
                 );
                 certified_commits.remove(0);
             } else {
-                // Make sure that the first we do find is the next one in line and there is no gap.
+                // Make sure that the first commit we find is the next one in line and there is no gap.
                 if certified_commit.index() != last_commit_index + 1 {
                     panic!("Gap found between the certified commits and the last committed index. Expected next commit index to be {}, but found {}", last_commit_index + 1, certified_commit.index());
                 }
@@ -176,7 +176,7 @@ impl UniversalCommitter {
                 let leader = commit.blocks().last().expect("Certified commit should have at least one block");
                 assert_eq!(leader.reference(), commit.leader(), "Last block of the committed sub dag should have the same digest as the leader of the commit");
                 let leader = DecidedLeader::Commit(leader.clone());
-                self.update_metrics(&leader, Decision::Synced);
+                self.update_metrics(&leader, Decision::Certified);
                 (leader, commit)
             })
             .collect::<Vec<_>>();
@@ -199,7 +199,7 @@ impl UniversalCommitter {
         let decision_str = match decision {
             Decision::Direct => "direct",
             Decision::Indirect => "indirect",
-            Decision::Synced => "synced",
+            Decision::Certified => "certified",
         };
         let status = match decided_leader {
             DecidedLeader::Commit(..) => format!("{decision_str}-commit"),
