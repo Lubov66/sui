@@ -3,7 +3,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    iter,
+    iter, mem,
     sync::Arc,
     time::Duration,
     vec,
@@ -31,7 +31,7 @@ use crate::{
         Slot, VerifiedBlock, GENESIS_ROUND,
     },
     block_manager::BlockManager,
-    commit::{CertifiedCommit, CommitAPI, CommittedSubDag, DecidedLeader},
+    commit::{CertifiedCommit, CommitAPI, CommittedSubDag, DecidedLeader, Decision},
     commit_observer::CommitObserver,
     context::Context,
     dag_state::DagState,
@@ -737,7 +737,6 @@ impl Core {
                 Vec<DecidedLeader>,
                 Vec<CertifiedCommit>,
             ) = self
-                .committer
                 .try_decide_certified(&mut certified_commits, commits_until_update)
                 .into_iter()
                 .unzip();
@@ -951,6 +950,79 @@ impl Core {
         }
 
         true
+    }
+
+    // Try to decide which of the certified commits will have to be committed next respecting the `limit`. If provided `limit` is zero, it will panic.
+    // The function returns the list of decided leaders and updates in place the remaining certified commits. If empty vector is returned, it means that
+    // there are no certified commits to be committed as `certified_commits` is either empty or all of the certified commits are already committed.
+    #[tracing::instrument(skip_all)]
+    fn try_decide_certified(
+        &mut self,
+        certified_commits: &mut Vec<CertifiedCommit>,
+        limit: usize,
+    ) -> Vec<(DecidedLeader, CertifiedCommit)> {
+        // If GC is disabled then should not run any of this logic.
+        if !self.dag_state.read().gc_enabled() {
+            return Vec::new();
+        }
+
+        assert!(limit > 0, "limit should be greater than 0");
+
+        let last_commit_index = self.dag_state.read().last_commit_index();
+
+        // If there are certified committed leaders, check that the first certified committed leader which is higher than the last decided one has no gaps.
+        while !certified_commits.is_empty() {
+            let certified_commit = certified_commits
+                .first()
+                .expect("Synced commits should not be empty");
+            if certified_commit.index() <= last_commit_index {
+                tracing::debug!(
+                    "Skip commit for index {} as it is already committed with last commit index {}",
+                    certified_commit.index(),
+                    last_commit_index
+                );
+                certified_commits.remove(0);
+            } else {
+                // Make sure that the first commit we find is the next one in line and there is no gap.
+                if certified_commit.index() != last_commit_index + 1 {
+                    panic!("Gap found between the certified commits and the last committed index. Expected next commit index to be {}, but found {}", last_commit_index + 1, certified_commit.index());
+                }
+
+                // now break as we want to process the rest of the committed leaders
+                break;
+            }
+        }
+
+        if certified_commits.is_empty() {
+            return Vec::new();
+        }
+
+        let to_commit = if certified_commits.len() >= limit {
+            // We keep only the number of leaders as dictated by the `limit`
+            certified_commits.drain(..limit).collect::<Vec<_>>()
+        } else {
+            // Otherwise just take all of them and leave the `synced_commits` empty.
+            mem::take(certified_commits)
+        };
+
+        tracing::info!(
+            "Decided {} certified leaders: {}",
+            to_commit.len(),
+            to_commit.iter().map(|c| c.leader().to_string()).join(",")
+        );
+
+        let sequenced_leaders = to_commit
+            .into_iter()
+            .map(|commit| {
+                let leader = commit.blocks().last().expect("Certified commit should have at least one block");
+                assert_eq!(leader.reference(), commit.leader(), "Last block of the committed sub dag should have the same digest as the leader of the commit");
+                let leader = DecidedLeader::Commit(leader.clone());
+                UniversalCommitter::update_metrics(&self.context, &leader, Decision::Certified);
+                (leader, commit)
+            })
+            .collect::<Vec<_>>();
+
+        sequenced_leaders
     }
 
     /// Retrieves the next ancestors to propose to form a block at `clock_round` round.
@@ -1340,7 +1412,7 @@ pub(crate) fn create_cores(context: Context, authorities: Vec<Stake>) -> Vec<Cor
 
     for index in 0..authorities.len() {
         let own_index = AuthorityIndex::new_for_test(index as u32);
-        let core = CoreTextFixture::new(context.clone(), authorities.clone(), own_index);
+        let core = CoreTextFixture::new(context.clone(), authorities.clone(), own_index, false);
         cores.push(core);
     }
     cores
@@ -1358,7 +1430,12 @@ pub(crate) struct CoreTextFixture {
 
 #[cfg(test)]
 impl CoreTextFixture {
-    fn new(context: Context, authorities: Vec<Stake>, own_index: AuthorityIndex) -> Self {
+    fn new(
+        context: Context,
+        authorities: Vec<Stake>,
+        own_index: AuthorityIndex,
+        sync_last_known_own_block: bool,
+    ) -> Self {
         let (committee, mut signers) = local_committee_and_keys(0, authorities.clone());
         let mut context = context.clone();
         context = context
@@ -1408,7 +1485,7 @@ impl CoreTextFixture {
             signals,
             block_signer,
             dag_state,
-            false,
+            sync_last_known_own_block,
         );
 
         Self {
@@ -3925,6 +4002,75 @@ mod test {
             .scan_commits((0..=CommitIndex::MAX).into())
             .unwrap();
         assert_eq!(all_stored_commits.len(), 6);
+    }
+
+    #[tokio::test]
+    async fn try_decide_certified() {
+        // GIVEN
+        telemetry_subscribers::init_for_testing();
+
+        let (context, _) = Context::new_for_test(4);
+
+        let authority_index = AuthorityIndex::new_for_test(0);
+        let core = CoreTextFixture::new(context.clone(), vec![1, 1, 1, 1], authority_index, true);
+        let mut core = core.core;
+
+        let mut dag_builder = DagBuilder::new(Arc::new(context.clone()));
+        dag_builder.layers(1..=12).build();
+
+        let limit = 2;
+
+        let blocks = dag_builder.blocks(1..=12);
+
+        for block in blocks {
+            core.dag_state.write().accept_block(block);
+        }
+
+        // WHEN
+        let sub_dags_and_commits = dag_builder.get_sub_dag_and_certified_commits(1..=4);
+        let mut certified_commits = sub_dags_and_commits
+            .into_iter()
+            .map(|(_, commit)| commit)
+            .collect::<Vec<_>>();
+
+        let leaders = core.try_decide_certified(&mut certified_commits, limit);
+
+        // THEN
+        assert_eq!(leaders.len(), 2);
+        assert_eq!(certified_commits.len(), 2);
+    }
+
+    #[tokio::test]
+    #[should_panic(
+        expected = "Gap found between the certified commits and the last committed index. Expected next commit index to be 1, but found 4"
+    )]
+    async fn try_decide_certified_gap_in_commits() {
+        // GIVEN
+        let (context, _) = Context::new_for_test(4);
+        let authority_index = AuthorityIndex::new_for_test(0);
+        let core = CoreTextFixture::new(context.clone(), vec![1, 1, 1, 1], authority_index, true);
+        let mut core = core.core;
+
+        let mut dag_builder = DagBuilder::new(core.context.clone());
+        dag_builder.layers(1..=12).build();
+
+        let limit = 2;
+
+        let blocks = dag_builder.blocks(1..=12);
+
+        for block in blocks {
+            core.dag_state.write().accept_block(block);
+        }
+
+        // WHEN
+        let sub_dags_and_commits = dag_builder.get_sub_dag_and_certified_commits(4..=5);
+        let mut certified_commits = sub_dags_and_commits
+            .into_iter()
+            .map(|(_, commit)| commit)
+            .collect::<Vec<_>>();
+
+        // This should panic as the last committed index is 1 and the first provided index is 4.
+        let _leaders = core.try_decide_certified(&mut certified_commits, limit);
     }
 
     pub(crate) async fn receive<T: Copy>(timeout: Duration, mut receiver: watch::Receiver<T>) -> T {

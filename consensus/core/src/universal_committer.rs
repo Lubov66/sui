@@ -1,16 +1,15 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::VecDeque, mem, sync::Arc};
+use std::{collections::VecDeque, sync::Arc};
 
 use consensus_config::AuthorityIndex;
-use itertools::Itertools;
 use parking_lot::RwLock;
 
 use crate::{
     base_committer::BaseCommitter,
     block::{Round, Slot, GENESIS_ROUND},
-    commit::{CertifiedCommit, CommitAPI, DecidedLeader, Decision},
+    commit::{DecidedLeader, Decision},
     context::Context,
     dag_state::DagState,
 };
@@ -104,84 +103,11 @@ impl UniversalCommitter {
             let Some(decided_leader) = leader.into_decided_leader() else {
                 break;
             };
-            self.update_metrics(&decided_leader, decision);
+            Self::update_metrics(&self.context, &decided_leader, decision);
             decided_leaders.push(decided_leader);
         }
         tracing::debug!("Decided {decided_leaders:?}");
         decided_leaders
-    }
-
-    // Try to decide which of the certified commits will have to be committed next respecting the `limit`. If provided `limit` is zero, it will panic.
-    // The function returns the list of decided leaders and updates in place the remaining certified commits. If empty vector is returned, it means that
-    // there are no certified commits to be committed as `certified_commits` is either empty or all of the certified commits are already committed.
-    #[tracing::instrument(skip_all)]
-    pub(crate) fn try_decide_certified(
-        &mut self,
-        certified_commits: &mut Vec<CertifiedCommit>,
-        limit: usize,
-    ) -> Vec<(DecidedLeader, CertifiedCommit)> {
-        // If GC is disabled then should not run any of this logic.
-        if !self.dag_state.read().gc_enabled() {
-            return Vec::new();
-        }
-
-        assert!(limit > 0, "limit should be greater than 0");
-
-        let last_commit_index = self.dag_state.read().last_commit_index();
-
-        // If there are certified committed leaders, check that the first certified committed leader which is higher than the last decided one has no gaps.
-        while !certified_commits.is_empty() {
-            let certified_commit = certified_commits
-                .first()
-                .expect("Synced commits should not be empty");
-            if certified_commit.index() <= last_commit_index {
-                tracing::debug!(
-                    "Skip commit for index {} as it is already committed with last commit index {}",
-                    certified_commit.index(),
-                    last_commit_index
-                );
-                certified_commits.remove(0);
-            } else {
-                // Make sure that the first commit we find is the next one in line and there is no gap.
-                if certified_commit.index() != last_commit_index + 1 {
-                    panic!("Gap found between the certified commits and the last committed index. Expected next commit index to be {}, but found {}", last_commit_index + 1, certified_commit.index());
-                }
-
-                // now break as we want to process the rest of the committed leaders
-                break;
-            }
-        }
-
-        if certified_commits.is_empty() {
-            return Vec::new();
-        }
-
-        let to_commit = if certified_commits.len() >= limit {
-            // We keep only the number of leaders as dictated by the `limit`
-            certified_commits.drain(..limit).collect::<Vec<_>>()
-        } else {
-            // Otherwise just take all of them and leave the `synced_commits` empty.
-            mem::take(certified_commits)
-        };
-
-        tracing::info!(
-            "Decided {} certified leaders: {}",
-            to_commit.len(),
-            to_commit.iter().map(|c| c.leader().to_string()).join(",")
-        );
-
-        let sequenced_leaders = to_commit
-            .into_iter()
-            .map(|commit| {
-                let leader = commit.blocks().last().expect("Certified commit should have at least one block");
-                assert_eq!(leader.reference(), commit.leader(), "Last block of the committed sub dag should have the same digest as the leader of the commit");
-                let leader = DecidedLeader::Commit(leader.clone());
-                self.update_metrics(&leader, Decision::Certified);
-                (leader, commit)
-            })
-            .collect::<Vec<_>>();
-
-        sequenced_leaders
     }
 
     /// Return list of leaders for the round.
@@ -195,7 +121,11 @@ impl UniversalCommitter {
     }
 
     /// Update metrics.
-    fn update_metrics(&self, decided_leader: &DecidedLeader, decision: Decision) {
+    pub(crate) fn update_metrics(
+        context: &Context,
+        decided_leader: &DecidedLeader,
+        decision: Decision,
+    ) {
         let decision_str = match decision {
             Decision::Direct => "direct",
             Decision::Indirect => "indirect",
@@ -205,12 +135,11 @@ impl UniversalCommitter {
             DecidedLeader::Commit(..) => format!("{decision_str}-commit"),
             DecidedLeader::Skip(..) => format!("{decision_str}-skip"),
         };
-        let leader_host = &self
-            .context
+        let leader_host = &context
             .committee
             .authority(decided_leader.slot().authority)
             .hostname;
-        self.context
+        context
             .metrics
             .node_metrics
             .committed_leaders_total
