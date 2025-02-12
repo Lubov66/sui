@@ -11,13 +11,13 @@ use crate::error::{invalid_params, InternalContext, RpcError};
 use crate::paginate::{Cursor, Page};
 use diesel::dsl::sql;
 use diesel::prelude::*;
-use diesel::sql_types::Bool;
+use diesel::sql_types::{BigInt, Bool, Bytea, SmallInt};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use move_core_types::language_storage::TypeTag;
 use serde::{Deserialize, Serialize};
 use sui_indexer_alt_schema::objects::StoredCoinOwnerKind;
 use sui_indexer_alt_schema::schema::coin_balance_buckets;
-use sui_json_rpc_types::{Coin, Page as JsonRpcPage};
+use sui_json_rpc_types::{Coin, Page as PageResponse};
 use sui_open_rpc::Module;
 use sui_open_rpc_macros::open_rpc;
 use sui_types::{
@@ -42,19 +42,7 @@ trait CoinsApi {
         cursor: Option<String>,
         /// maximum number of items per page
         limit: Option<usize>,
-    ) -> RpcResult<JsonRpcPage<Coin, String>>;
-
-    /// Return all Coin objects owned by an address.
-    #[method(name = "getAllCoins")]
-    async fn get_all_coins(
-        &self,
-        /// the owner's Sui address
-        owner: SuiAddress,
-        /// optional paging cursor
-        cursor: Option<String>,
-        /// maximum number of items per page
-        limit: Option<usize>,
-    ) -> RpcResult<JsonRpcPage<Coin, String>>;
+    ) -> RpcResult<PageResponse<Coin, String>>;
 }
 
 pub(crate) struct Coins(pub Context, pub CoinsConfig);
@@ -78,6 +66,7 @@ pub(crate) enum Error {
     BadType(String, anyhow::Error),
 }
 
+// TODO: use bcs cursor once we have it.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct BalanceCursor {
     #[serde(rename = "o")]
@@ -96,7 +85,7 @@ impl CoinsApiServer for Coins {
         coin_type: Option<String>,
         cursor: Option<String>,
         limit: Option<usize>,
-    ) -> RpcResult<JsonRpcPage<Coin, String>> {
+    ) -> RpcResult<PageResponse<Coin, String>> {
         let coin_struct_tag = if let Some(coin_type) = coin_type {
             sui_types::parse_sui_type_tag(&coin_type)
                 .map_err(|e| invalid_params(Error::BadType(coin_type, e)))?
@@ -104,7 +93,7 @@ impl CoinsApiServer for Coins {
             GAS::type_tag()
         };
         Ok(self
-            .get_coins_impl(owner, Some(coin_struct_tag.clone()), cursor, limit)
+            .get_coins_impl(owner, coin_struct_tag.clone(), cursor, limit)
             .await
             .with_internal_context(|| {
                 format!(
@@ -113,28 +102,16 @@ impl CoinsApiServer for Coins {
                 )
             })?)
     }
-
-    async fn get_all_coins(
-        &self,
-        owner: SuiAddress,
-        cursor: Option<String>,
-        limit: Option<usize>,
-    ) -> RpcResult<JsonRpcPage<Coin, String>> {
-        Ok(self
-            .get_coins_impl(owner, None, cursor, limit)
-            .await
-            .with_internal_context(|| format!("Failed to get coins for {owner}"))?)
-    }
 }
 
 impl Coins {
     async fn get_coins_impl(
         &self,
         owner: SuiAddress,
-        coin_type_tag: Option<TypeTag>,
+        coin_type_tag: TypeTag,
         cursor: Option<String>,
         limit: Option<usize>,
-    ) -> Result<JsonRpcPage<Coin, String>, RpcError<Error>> {
+    ) -> Result<PageResponse<Coin, String>, RpcError<Error>> {
         let Self(_, config) = self;
 
         let page: Page<BalanceCursor> = Page::from_params(
@@ -154,13 +131,10 @@ impl Coins {
             .await
             .into_iter()
             .zip(coin_id_page.data)
-            .map(|(r, c)| {
-                let id = c;
-                r.with_internal_context(|| format!("Failed to get object {id}"))
-            })
+            .map(|(r, id)| r.with_internal_context(|| format!("Failed to get object {id}")))
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(JsonRpcPage {
+        Ok(PageResponse {
             data: coins,
             next_cursor: coin_id_page.next_cursor,
             has_next_page: coin_id_page.has_next_page,
@@ -170,9 +144,9 @@ impl Coins {
     async fn get_coin_id_page(
         &self,
         owner: SuiAddress,
-        coin_type_tag: Option<TypeTag>,
+        coin_type_tag: TypeTag,
         page: Page<BalanceCursor>,
-    ) -> Result<JsonRpcPage<ObjectID, String>, RpcError<Error>> {
+    ) -> Result<PageResponse<ObjectID, String>, RpcError<Error>> {
         use coin_balance_buckets::dsl as cb;
 
         let Self(ctx, _) = self;
@@ -183,6 +157,9 @@ impl Coins {
             .context("Failed to connect to database")?;
 
         let limit = page.limit;
+
+        let serialized_coin_type =
+            bcs::to_bytes(&coin_type_tag).context("Failed to serialize coin type tag")?;
 
         // We use two aliases of coin_balance_buckets to make the query more readable.
         let (candidates, newer) = diesel::alias!(
@@ -205,10 +182,10 @@ impl Coins {
 
         // Construct the basic query first to filter by owner, not deleted and newest rows.
         let mut query = candidates
-            .select(candidates!(
-                object_id,
-                cp_sequence_number,
-                coin_balance_bucket
+            .select((
+                candidates.field(cb::object_id),
+                candidates.field(cb::cp_sequence_number),
+                candidates.field(cb::coin_balance_bucket).assume_not_null(),
             ))
             .left_join(
                 newer.on(candidates!(object_id)
@@ -218,14 +195,8 @@ impl Coins {
             .filter(newer!(object_id).is_null())
             .filter(candidates!(owner_kind).eq(StoredCoinOwnerKind::Fastpath))
             .filter(candidates!(owner_id).eq(owner.to_vec()))
+            .filter(candidates!(coin_type).eq(serialized_coin_type))
             .into_boxed();
-
-        // If the coin type is specified, we filter by it.
-        if let Some(coin_type_tag) = coin_type_tag {
-            let serialized_coin_type =
-                bcs::to_bytes(&coin_type_tag).context("Failed to serialize coin type tag")?;
-            query = query.filter(candidates!(coin_type).eq(serialized_coin_type));
-        }
 
         // If the cursor is specified, we filter by it.
         if let Some(Cursor(BalanceCursor {
@@ -234,14 +205,18 @@ impl Coins {
             coin_balance_bucket,
         })) = page.cursor
         {
-            query = query.filter(sql::<Bool>(&format!(
-                r#"ROW(candidates.coin_balance_bucket, candidates.cp_sequence_number, candidates.object_id)
-                 < ROW({coin_balance_bucket}, {cp_sequence_number}, '\x{object_id}'::bytea)"#,
-                object_id = hex::encode(object_id),
-            )));
+            query = query.filter(
+                sql::<Bool>(r#"(candidates.coin_balance_bucket, candidates.cp_sequence_number, candidates.object_id) < ("#)
+                    .bind::<SmallInt, _>(coin_balance_bucket)
+                    .sql(", ")
+                    .bind::<BigInt, _>(cp_sequence_number)
+                    .sql(", ")
+                    .bind::<Bytea, _>(object_id.to_vec())
+                    .sql(")")
+            );
         }
 
-        // Finally we order by coin_balance_bucket and break ties by object_id.
+        // Finally we order by coin_balance_bucket, then by cp_sequence_number, and then by object_id.
         query = query
             .order_by(candidates!(coin_balance_bucket).desc())
             .then_order_by(candidates!(cp_sequence_number).desc())
@@ -253,7 +228,7 @@ impl Coins {
         struct IdCpBalance {
             object_id: Vec<u8>,
             cp_sequence_number: i64,
-            coin_balance_bucket: Option<i16>,
+            coin_balance_bucket: i16,
         }
 
         let mut buckets: Vec<IdCpBalance> =
@@ -268,15 +243,13 @@ impl Coins {
         let next_cursor = buckets
             .last()
             .map(|bucket| {
+                // TODO: use bcs cursor and avoid serde-ing object id.
                 let object_id =
                     ObjectID::from_bytes(&bucket.object_id).context("Failed to parse object id")?;
-                let balance_bucket = bucket
-                    .coin_balance_bucket
-                    .ok_or_else(|| anyhow::anyhow!("Coin balance bucket is null"))?;
                 Cursor(BalanceCursor {
                     object_id,
                     cp_sequence_number: bucket.cp_sequence_number,
-                    coin_balance_bucket: balance_bucket,
+                    coin_balance_bucket: bucket.coin_balance_bucket,
                 })
                 .encode()
                 .context("Failed to encode cursor")
@@ -289,7 +262,7 @@ impl Coins {
             .collect::<Result<Vec<_>, _>>()
             .context("Failed to parse object id")?;
 
-        Ok(JsonRpcPage {
+        Ok(PageResponse {
             data: ids,
             next_cursor,
             has_next_page,
@@ -300,7 +273,7 @@ impl Coins {
         let Self(ctx, _) = self;
         let stored_object = load_latest(ctx.loader(), id)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("Failed to load latest object {:?}", id))?;
+            .ok_or_else(|| anyhow::anyhow!("Failed to load latest object {}", id))?;
 
         let object: Object =
             bcs::from_bytes(&stored_object.serialized_object.ok_or_else(|| {
@@ -313,10 +286,10 @@ impl Coins {
         let previous_transaction = object.as_inner().previous_transaction;
         let coin = object
             .as_coin_maybe()
-            .ok_or(anyhow::anyhow!("Object is expected to be a coin"))?;
+            .context("Object is expected to be a coin")?;
         let coin_type = object
             .coin_type_maybe()
-            .ok_or(anyhow::anyhow!("Object is expected to have a coin type"))?
+            .context("Object is expected to have a coin type")?
             .to_canonical_string(/* with_prefix */ true);
         Ok(Coin {
             coin_type,

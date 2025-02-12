@@ -14172,7 +14172,6 @@ dependencies = [
  "diesel-async",
  "fastcrypto",
  "futures",
- "hex",
  "jsonrpsee",
  "move-core-types",
  "pin-project-lite",
