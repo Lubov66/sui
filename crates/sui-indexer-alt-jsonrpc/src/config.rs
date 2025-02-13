@@ -17,6 +17,10 @@ pub struct RpcConfig {
     /// Configuration for transaction-related RPC methods.
     pub transactions: TransactionsLayer,
 
+    /// Configuration for bigtable kv store, if it is used..
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bigtable_config: Option<BigtableConfig>,
+
     #[serde(flatten)]
     pub extra: toml::Table,
 }
@@ -42,6 +46,13 @@ pub struct TransactionsLayer {
     pub extra: toml::Table,
 }
 
+#[DefaultConfig]
+#[derive(Clone, Default, Debug)]
+pub struct BigtableConfig {
+    pub instance_id: String,
+    pub credentials: String,
+}
+
 impl RpcConfig {
     /// Generate an example configuration, suitable for demonstrating the fields available to
     /// configure.
@@ -49,6 +60,7 @@ impl RpcConfig {
         Self {
             objects: ObjectsConfig::default().into(),
             transactions: TransactionsConfig::default().into(),
+            bigtable_config: None,
             extra: Default::default(),
         }
     }

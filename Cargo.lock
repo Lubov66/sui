@@ -14210,6 +14210,7 @@ dependencies = [
  "sui-indexer-alt-schema",
  "sui-json",
  "sui-json-rpc-types",
+ "sui-kvstore",
  "sui-open-rpc",
  "sui-open-rpc-macros",
  "sui-package-resolver",

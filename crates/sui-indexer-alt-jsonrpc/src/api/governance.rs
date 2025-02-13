@@ -14,7 +14,6 @@ use sui_open_rpc_macros::open_rpc;
 use sui_types::{
     base_types::ObjectID,
     dynamic_field::{derive_dynamic_field_id, Field},
-    object::Object,
     sui_serde::BigInt,
     sui_system_state::{
         sui_system_state_inner_v1::SuiSystemStateInnerV1,
@@ -73,7 +72,7 @@ async fn rgp_response(ctx: &Context) -> Result<BigInt<u64>, RpcError> {
     use kv_epoch_starts::dsl as e;
 
     let mut conn = ctx
-        .reader()
+        .pg_reader()
         .connect()
         .await
         .context("Failed to connect to the database")?;
@@ -127,14 +126,9 @@ async fn fetch_latest_for_system_state<T: DeserializeOwned>(
     ctx: &Context,
     object_id: ObjectID,
 ) -> Result<T, RpcError> {
-    let stored = load_latest(ctx.loader(), object_id)
+    let object = load_latest(ctx, object_id)
         .await?
-        .ok_or_else(|| internal_error!("No data found"))?
-        .serialized_object
-        .ok_or_else(|| internal_error!("No content found"))?;
-
-    let object: Object =
-        bcs::from_bytes(&stored).context("Failed to deserialize object contents")?;
+        .ok_or_else(|| internal_error!("No data found"))?;
 
     let move_object = object
         .data

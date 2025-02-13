@@ -102,7 +102,7 @@ async fn all_transactions(ctx: &Context, page: &Page<Cursor>) -> Result<Digests,
         .into_boxed();
 
     let results: Vec<(i64, Vec<u8>)> = ctx
-        .reader()
+        .pg_reader()
         .connect()
         .await
         .context("Failed to connect to the database")?
@@ -120,7 +120,7 @@ async fn by_checkpoint(
     checkpoint: u64,
 ) -> Result<Digests, RpcError<Error>> {
     let Some(checkpoint) = ctx
-        .loader()
+        .pg_loader()
         .load_one(CheckpointKey(checkpoint))
         .await
         .context("Failed to load checkpoint")?
@@ -212,7 +212,7 @@ async fn tx_calls(
     }
 
     let results: Vec<i64> = ctx
-        .reader()
+        .pg_reader()
         .connect()
         .await
         .context("Failed to connect to the database")?
@@ -238,7 +238,7 @@ async fn tx_affected_objects(
         .into_boxed();
 
     let results: Vec<i64> = ctx
-        .reader()
+        .pg_reader()
         .connect()
         .await
         .context("Failed to connect to the database")?
@@ -278,7 +278,7 @@ async fn tx_affected_addresses(
     }
 
     let results: Vec<i64> = ctx
-        .reader()
+        .pg_reader()
         .connect()
         .await
         .context("Failed to connect to the database")?
@@ -369,7 +369,7 @@ async fn from_sequence_numbers(
         .context("Failed to encode next cursor")?;
 
     let digests = ctx
-        .loader()
+        .pg_loader()
         .load_many(rows.iter().map(|&seq| TxDigestKey(seq as u64)))
         .await
         .context("Failed to load transaction digests")?;
