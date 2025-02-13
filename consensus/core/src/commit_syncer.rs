@@ -313,7 +313,10 @@ impl<C: NetworkClient> CommitSyncer<C> {
                     let blocks = commit
                         .blocks()
                         .iter()
-                        .map(|block_ref| blocks_map.remove(block_ref).expect("Block should exist"))
+                        .map(|block_ref| {
+                            // It's impossible for two different commits to sequence the same block so that operation should be safe.
+                            blocks_map.remove(block_ref).expect("Block should exist")
+                        })
                         .collect::<Vec<_>>();
                     CertifiedCommit::new_certified(commit, blocks)
                 })
