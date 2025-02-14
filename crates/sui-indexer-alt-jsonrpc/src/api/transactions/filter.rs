@@ -20,7 +20,6 @@ use sui_json_rpc_types::{Page as PageResponse, TransactionFilter};
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
     digests::TransactionDigest,
-    messages_checkpoint::{CheckpointContents, CheckpointSummary},
 };
 
 use crate::{
@@ -119,20 +118,14 @@ async fn by_checkpoint(
     page: &Page<Cursor>,
     checkpoint: u64,
 ) -> Result<Digests, RpcError<Error>> {
-    let Some(checkpoint) = ctx
-        .pg_loader()
-        .load_one(CheckpointKey(checkpoint))
+    let Some((summary, contents, _)) = ctx
+        .kv_loader()
+        .load_one_checkpoint(CheckpointKey(checkpoint))
         .await
         .context("Failed to load checkpoint")?
     else {
         return Ok(PageResponse::empty());
     };
-
-    let summary: CheckpointSummary = bcs::from_bytes(&checkpoint.checkpoint_summary)
-        .context("Failed to deserialize checkpoint summary")?;
-
-    let contents: CheckpointContents = bcs::from_bytes(&checkpoint.checkpoint_contents)
-        .context("Failed to deserialize checkpoint contents")?;
 
     // Transaction sequence number bounds from the checkpoint
     let cp_hi = summary.network_total_transactions;
